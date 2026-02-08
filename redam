@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# diagnose_all.sh
+# جمع حالة git, بناء الواجهة، والتحقق من الخدمة الخلفية
+set -e
+
+echo "=== 1. Git status and recent commits ==="
+git status --porcelain || true
+echo "Current branch: $(git branch --show-current 2>/dev/null || echo none)"
+echo "Recent commits:"
+git --no-pager log --oneline -n 5 || true
+echo
+echo "=== 2. Remote info ==="
+git remote -v || true
+echo "Remote refs (origin):"
+git ls-remote origin || true
+echo
+
+# Frontend build check
+if [ -d "frontend" ]; then
+  echo "=== 3. Frontend: npm --version & node --version ==="
+  node --version || true
+  npm --version || true
+  echo "=== 4. Running frontend build (may take time) ==="
+  cd frontend
+  npm install --silent || echo "npm install returned non-zero"
+  BUILD_OK=true
+  npm run build || BUILD_OK=false
+  if [ "$BUILD_OK" = false ]; then
+    echo ">>> Frontend build FAILED. Capture the error above and paste it in your next message."
+    exit 2
+  fi
+  echo "=== 5. Dist contents ==="
+  ls -la dist | sed -n '1,200p' || true
+  echo "=== 6. Head of dist/index.html ==="
+  head -n 30 dist/index.html || true
+  cd ..
+else
+  echo "No frontend folder found."
+fi
+
+# Backend health check (if backend exists)
+if [ -d "backend" ]; then
+  echo "=== 7. Backend status ==="
+  cd backend
+  node --version || true
+  npm --version || true
+  echo "Installing backend deps (silent)..."
+  npm install --silent || echo "npm install backend returned non-zero"
+  echo "Starting backend for quick health check (background)..."
+  # start backend in background on random port if needed
+  # We'll just try to run node server.js if present
+  if [ -f server.js ]; then
+    (node server.js &> /tmp/mic_backend_log.txt & echo $! > /tmp/mic_backend_pid.txt) || true
+    sleep 1
+    echo "Backend log (first 50 lines):"
+    head -n 50 /tmp/mic_backend_log.txt || true
+    echo "If backend started, you can run: curl http://localhost:3000/ (or configured PORT)"
+  else
+    echo "No server.js found in backend."
+  fi
+  cd ..
+else
+  echo "No backend folder found."
+fi
+
+echo
+echo "=== 8. Instructions to capture browser DevTools info ==="
+echo "1) Open the published URL in Chrome."
+echo "2) Press F12 -> Console tab. Copy any red errors here."
+echo "3) Press Network tab, reload page. Find index.html and the main JS files; copy their Status codes (200/404/500)."
+echo "Paste Console errors and Network status lines in your reply."
+
+echo
+echo "=== 9. Done ==="
